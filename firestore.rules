@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ─── PIE Digital NR-10 — Regras de segurança com RBAC ─────────────────────
+    // Cada usuário autenticado acessa APENAS seus próprios dados.
+    // Estrutura: /users/{userId}/{colecao}/{documentId}
+    // Coleções: clientes, documentos, checklist, inspecoes, acoes, trabalhadores, epis
+
+    // ─── User Profiles (RBAC) ────────────────────────────────────────────────────
+    // Cada usuário tem um documento de perfil em /users/{uid}
+    match /users/{uid} {
+      // Usuário autenticado pode ler/escrever seu próprio perfil
+      allow read, write: if request.auth.uid == uid;
+      
+      // Dados do usuário autenticado (coleções aninhadas)
+      match /{document=**} {
+        allow read, write: if request.auth.uid == uid;
+      }
+    }
+
+    // ─── Visitor Invites ──────────────────────────────────────────────────────────
+    // Convites para visitantes
+    match /visitorInvites/{inviteId} {
+      // Criador do convite pode ler seus próprios convites
+      allow read: if request.auth.uid == resource.data.ownerUid;
+      
+      // Criador pode criar novos convites
+      allow create: if request.auth.uid == request.resource.data.ownerUid;
+      
+      // Criador pode atualizar seus convites (ex: revogar)
+      allow update: if request.auth.uid == resource.data.ownerUid;
+      
+      // Qualquer pessoa não autenticada pode ler um convite específico para aceitá-lo
+      // (validação adicional deve ser feita no cliente)
+      allow read: if request.auth == null;
+    }
+
+    // ─── Public Shares (Relatórios somente leitura) ───────────────────────────────
+    // Compartilhamentos públicos de prontuários
+    match /publicShares/{shareId} {
+      // Criador pode ler/escrever seus compartilhamentos
+      allow read, write: if request.auth.uid == resource.data.ownerUid;
+      
+      // Qualquer pessoa (autenticada ou não) pode ler um compartilhamento público ativo
+      allow read: if resource.data.active == true && resource.data.mode == "readonly";
+      
+      // Ninguém pode deletar compartilhamentos públicos (apenas o criador via update)
+      allow delete: if false;
+    }
+
+    // ─── Default deny all ────────────────────────────────────────────────────────
+    // Bloquear qualquer acesso não explicitamente permitido
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
